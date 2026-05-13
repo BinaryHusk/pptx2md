@@ -1,8 +1,16 @@
 # PPTX2MD
 
+[English](README.md) | [简体中文](README_CN.md)
+
 [![Downloads](https://pepy.tech/badge/pptx2md)](https://pepy.tech/project/pptx2md)
 
 A tool to convert Powerpoint pptx file into markdown.
+
+## About This Fork
+
+This fork exists for personal maintenance and day-to-day use because the upstream project has accumulated unmerged PRs and unreleased fixes. It includes local fixes for PPTX files whose presenter notes have no text frame, safer temporary file handling when purging broken NULL relationships, and removal of parser-level mutable image numbering state.
+
+Install from this fork instead of the PyPI package if you need these fixes.
 
 **Preserved formats:**
 
@@ -26,10 +34,21 @@ _Please star this repo if you like it!_
 
 ### Installation
 
-You need to have _[Python](https://www.python.org/)_ with version later than __3.10__ and _pip_ installed on your system, then run in the terminal:
+This fork contains fixes that may not be available in the PyPI package. Do not install it with
+`pip install pptx2md`, because that command installs the published upstream package.
+
+Install this fork directly from Git:
 
 ```sh
-pip install pptx2md
+pip install "git+https://github.com/BinaryHusk/pptx2md.git"
+```
+
+For local development, clone the fork and install it in editable mode:
+
+```sh
+git clone https://github.com/BinaryHusk/pptx2md.git
+cd pptx2md
+pip install -e .
 ```
 
 ### Usage
@@ -43,7 +62,7 @@ __Note:__ older .ppt files are not supported, convert them to the new .pptx vers
 __Upgrade & Remove:__
 
 ```sh
-pip install --upgrade pptx2md
+pip install --upgrade "git+https://github.com/BinaryHusk/pptx2md.git"
 
 pip uninstall pptx2md
 ```

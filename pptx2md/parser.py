@@ -17,8 +17,9 @@ from __future__ import print_function
 import logging
 import os
 from functools import partial
+from itertools import count
 from operator import attrgetter
-from typing import List, Union
+from typing import Iterator, List, Union
 
 from PIL import Image
 from pptx import Presentation
@@ -43,8 +44,6 @@ from pptx2md.types import (
 )
 
 logger = logging.getLogger(__name__)
-
-picture_count = 0
 
 
 def is_title(shape):
@@ -144,14 +143,12 @@ def process_text_blocks(config: ConversionConfig, shape, slide_idx) -> List[Unio
     return results
 
 
-def process_picture(config: ConversionConfig, shape, slide_idx) -> Union[ImageElement, None]:
+def process_picture(config: ConversionConfig, shape, slide_idx, picture_index: int) -> Union[ImageElement, None]:
     if config.disable_image:
         return None
 
-    global picture_count
-
     file_prefix = ''.join(os.path.basename(config.pptx_path).split('.')[:-1])
-    pic_name = file_prefix + f'_{picture_count}'
+    pic_name = file_prefix + f'_{picture_index}'
     pic_ext = shape.image.ext
     if not os.path.exists(config.image_dir):
         os.makedirs(config.image_dir)
@@ -161,7 +158,6 @@ def process_picture(config: ConversionConfig, shape, slide_idx) -> Union[ImageEl
     img_outputter_path = os.path.relpath(output_path, common_path)
     with open(output_path, 'wb') as f:
         f.write(shape.image.blob)
-        picture_count += 1
 
     # normal images
     if pic_ext != 'wmf':
@@ -207,7 +203,8 @@ def ungroup_shapes(shapes) -> List[SlideElement]:
     return res
 
 
-def process_shapes(config: ConversionConfig, current_shapes, slide_id: int) -> List[SlideElement]:
+def process_shapes(config: ConversionConfig, current_shapes, slide_id: int,
+                   picture_counter: Iterator[int]) -> List[SlideElement]:
     results = []
     for shape in current_shapes:
         if is_title(shape):
@@ -216,7 +213,7 @@ def process_shapes(config: ConversionConfig, current_shapes, slide_id: int) -> L
             results.extend(process_text_blocks(config, shape, slide_id))
         elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
             try:
-                pic = process_picture(config, shape, slide_id)
+                pic = process_picture(config, shape, slide_id, next(picture_counter))
                 if pic:
                     results.append(pic)
             except AttributeError as e:
@@ -229,7 +226,7 @@ def process_shapes(config: ConversionConfig, current_shapes, slide_id: int) -> L
             try:
                 ph = shape.placeholder_format
                 if ph.type == PP_PLACEHOLDER.OBJECT and hasattr(shape, "image") and getattr(shape, "image"):
-                    pic = process_picture(config, shape, slide_id)
+                    pic = process_picture(config, shape, slide_id, next(picture_counter))
                     if pic:
                         results.append(pic)
             except:
@@ -240,6 +237,7 @@ def process_shapes(config: ConversionConfig, current_shapes, slide_id: int) -> L
 
 def parse(config: ConversionConfig, prs: Presentation) -> ParsedPresentation:
     result = ParsedPresentation(slides=[])
+    picture_counter = count()
 
     for idx, slide in enumerate(tqdm(prs.slides, desc='Converting slides')):
         if config.page is not None and idx + 1 != config.page:
@@ -258,17 +256,18 @@ def parse(config: ConversionConfig, prs: Presentation) -> ParsedPresentation:
                 logger.warning('failed to print all bad shapes.')
 
         if not config.try_multi_column:
-            result_slide = GeneralSlide(elements=process_shapes(config, shapes, idx + 1))
+            result_slide = GeneralSlide(elements=process_shapes(config, shapes, idx + 1, picture_counter))
         else:
             multi_column_slide = get_multi_column_slide_if_present(
-                prs, slide, partial(process_shapes, config=config, slide_id=idx + 1))
+                prs, slide, partial(process_shapes, config=config, slide_id=idx + 1, picture_counter=picture_counter))
             if multi_column_slide:
                 result_slide = multi_column_slide
             else:
-                result_slide = GeneralSlide(elements=process_shapes(config, shapes, idx + 1))
+                result_slide = GeneralSlide(elements=process_shapes(config, shapes, idx + 1, picture_counter))
 
         if not config.disable_notes and slide.has_notes_slide:
-            text = slide.notes_slide.notes_text_frame.text
+            notes_text_frame = getattr(slide.notes_slide, 'notes_text_frame', None)
+            text = notes_text_frame.text if notes_text_frame else ''
             if text:
                 result_slide.notes.append(text)
 

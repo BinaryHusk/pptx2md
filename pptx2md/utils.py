@@ -26,31 +26,33 @@ logger = logging.getLogger(__name__)
 
 
 def fix_null_rels(file_path):
+    file_path = os.fspath(file_path)
     temp_dir_name = tempfile.mkdtemp()
-    shutil.unpack_archive(file_path, temp_dir_name, 'zip')
-    rels = [
-        os.path.join(dp, f)
-        for dp, dn, filenames in os.walk(temp_dir_name)
-        for f in filenames
-        if os.path.splitext(f)[1] == '.rels'
-    ]
-    pat = re.compile(r'<\S*Relationship[^>]+Target\S*=\S*"NULL"[^>]*/>', re.I)
-    for fn in rels:
-        f = open(fn, 'r+')
-        content = f.read()
-        res = pat.search(content)
-        if res is not None:
-            content = pat.sub('', content)
-            f.seek(0)
-            f.truncate()
-            f.write(content)
-        f.close()
-    tfn = uuid.uuid4().hex
-    shutil.make_archive(tfn, 'zip', temp_dir_name)
-    shutil.rmtree(temp_dir_name)
-    tgt = f'{file_path[:-5]}_purged.pptx'
-    shutil.move(f'{tfn}.zip', tgt)
-    return tgt
+    try:
+        shutil.unpack_archive(file_path, temp_dir_name, 'zip')
+        rels = [
+            os.path.join(dp, f)
+            for dp, dn, filenames in os.walk(temp_dir_name)
+            for f in filenames
+            if os.path.splitext(f)[1] == '.rels'
+        ]
+        pat = re.compile(r'<\S*Relationship[^>]+Target\S*=\S*"NULL"[^>]*/>', re.I)
+        for fn in rels:
+            with open(fn, 'r+') as f:
+                content = f.read()
+                res = pat.search(content)
+                if res is not None:
+                    content = pat.sub('', content)
+                    f.seek(0)
+                    f.truncate()
+                    f.write(content)
+        archive_base = os.path.join(tempfile.gettempdir(), f'{Path(file_path).stem}_purged_{uuid.uuid4().hex}')
+        archive_path = shutil.make_archive(archive_base, 'zip', temp_dir_name)
+        tgt = f'{archive_base}.pptx'
+        shutil.move(archive_path, tgt)
+        return tgt
+    finally:
+        shutil.rmtree(temp_dir_name, ignore_errors=True)
 
 
 def load_pptx(file_path: str) -> Presentation:
@@ -63,14 +65,21 @@ def load_pptx(file_path: str) -> Presentation:
     except KeyError as err:
         if len(err.args) > 0 and re.match(r'There is no item named .*NULL.* in the archive', str(err.args[0])):
             logger.info('corrupted links found, trying to purge...')
+            res_path = None
             try:
                 res_path = fix_null_rels(file_path)
-                logger.info(f'purged file saved to {res_path}.')
+                logger.info(f'created temporary purged file {res_path}.')
                 prs = Presentation(res_path)
             except:
                 logger.error(
                     'failed to purge corrupted links, you can report this at https://github.com/ssine/pptx2md/issues')
                 raise err
+            finally:
+                if res_path:
+                    try:
+                        os.unlink(res_path)
+                    except OSError:
+                        logger.warning(f'failed to remove temporary purged file {res_path}.')
         else:
             logger.error('unknown error, you can report this at https://github.com/ssine/pptx2md/issues')
             raise err
