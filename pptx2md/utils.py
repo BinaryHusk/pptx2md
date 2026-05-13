@@ -18,11 +18,44 @@ import re
 import shutil
 import tempfile
 import uuid
+import zipfile
+import zlib
 from pathlib import Path
 
 from pptx import Presentation
 
 logger = logging.getLogger(__name__)
+
+
+def remove_unreadable_zip_members(file_path):
+    file_path = os.fspath(file_path)
+    repaired_path = os.path.join(tempfile.gettempdir(), f'{Path(file_path).stem}_repaired_{uuid.uuid4().hex}.pptx')
+    skipped = []
+
+    try:
+        with zipfile.ZipFile(file_path) as zin, zipfile.ZipFile(repaired_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                try:
+                    data = zin.read(info.filename)
+                except (zipfile.BadZipFile, zlib.error) as err:
+                    skipped.append((info.filename, err))
+                    continue
+                zout.writestr(info, data)
+    except (zipfile.BadZipFile, zlib.error):
+        try:
+            os.unlink(repaired_path)
+        except OSError:
+            pass
+        raise
+
+    if not skipped:
+        try:
+            os.unlink(repaired_path)
+        except OSError:
+            pass
+        raise zipfile.BadZipFile('No unreadable zip members found to remove.')
+
+    return repaired_path, skipped
 
 
 def fix_null_rels(file_path):
@@ -62,6 +95,21 @@ def load_pptx(file_path: str) -> Presentation:
         raise FileNotFoundError(file_path)
     try:
         prs = Presentation(file_path)
+    except (zipfile.BadZipFile, zlib.error) as err:
+        repaired_path = None
+        try:
+            repaired_path, skipped = remove_unreadable_zip_members(file_path)
+            skipped_names = ', '.join(name for name, _ in skipped)
+            logger.warning(f'Removed unreadable zip member(s) from {file_path}: {skipped_names}')
+            prs = Presentation(repaired_path)
+        except (zipfile.BadZipFile, zlib.error, ValueError) as repair_err:
+            raise ValueError(f'Cannot read PPTX file {file_path}: invalid or corrupted zip archive.') from repair_err
+        finally:
+            if repaired_path:
+                try:
+                    os.unlink(repaired_path)
+                except OSError:
+                    logger.warning(f'failed to remove temporary repaired file {repaired_path}.')
     except KeyError as err:
         if len(err.args) > 0 and re.match(r'There is no item named .*NULL.* in the archive', str(err.args[0])):
             logger.info('corrupted links found, trying to purge...')

@@ -49,7 +49,7 @@ pip install pptx2md
 请直接从 Git 安装：
 
 ```sh
-pip install "git+https://github.com/BinaryHusk/pptx2md.git"
+pip install --upgrade "git+https://github.com/BinaryHusk/pptx2md.git"
 ```
 
 如果要进行本地开发，可以 clone 仓库并使用 editable 模式安装：

@@ -40,7 +40,7 @@ This fork contains fixes that may not be available in the PyPI package. Do not i
 Install this fork directly from Git:
 
 ```sh
-pip install "git+https://github.com/BinaryHusk/pptx2md.git"
+pip install --upgrade "git+https://github.com/BinaryHusk/pptx2md.git"
 ```
 
 For local development, clone the fork and install it in editable mode:
